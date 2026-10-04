@@ -162,6 +162,68 @@ valid = ECDSA.valid_signature?(public_key, digest, signature)
 puts "valid: #{valid}"
 ```
 
+## Schnorr adaptor signatures (secp256k1)
+
+The `ECDSA::SchnorrAdaptor` module implements Schnorr *adaptor signatures*
+(also known as scriptless-script pre-signatures) for secp256k1.  One party
+publishes a pre-signature that anyone can verify but that is not yet a valid
+signature; once the secret behind a public *adaptor point* `T = t * G` is
+revealed, the pre-signature can be adapted into an ordinary Schnorr
+signature, and anyone holding both signatures can extract the secret `t`.
+
+Protocol variant and conventions:
+
+- The construction is the classic one (Aumayr et al.): the pre-signature is
+  `(R', s')` with `R' = k * G` and `s' = k + e * x`, where the challenge
+  `e` binds the *combined* nonce point `R = R' + T`.  Adapting adds the
+  adaptor secret (`s = s' + t`), and extraction subtracts (`t = s - s'`).
+- The final signature is an ordinary BIP-340 Schnorr signature: the
+  challenge uses the BIP-340 tagged hash `BIP0340/challenge`, public keys
+  are x-only (the even-y representative is used; if the signer's public key
+  has odd y, the secret key is internally negated), and the combined nonce
+  point `R = R' + T` is required to have even y (pre-signing retries the
+  nonce until this holds).  Deterministic nonce re-derivation uses the
+  gem-private tagged hash `ECDSA::SchnorrAdaptor/nonce` for domain
+  separation.
+- The adaptor point `T` is a full curve point: both coordinates are
+  significant, and the infinity point is rejected.
+- `extract` always re-checks the candidate secret against the public
+  adaptor point (`t * G == T`) and raises
+  `ECDSA::SchnorrAdaptor::ExtractionError` if it does not match, so a wrong
+  message, public key, or adaptor point can never yield a "successful"
+  bogus secret.  Likewise, `adapt` raises
+  `ECDSA::SchnorrAdaptor::AdaptationError` if the adaptor secret does not
+  match the adaptor point.
+
+```ruby
+require 'ecdsa'
+
+group = ECDSA::Group::Secp256k1
+adaptor_secret = 1 + SecureRandom.random_number(group.order - 1)
+adaptor_point = group.new_point(adaptor_secret)  # T = t * G, shared publicly
+message = Digest::SHA256.digest('send 1 coin to Alice')
+
+# The signer pre-signs.  Nonces come from SecureRandom by default.
+pre_signature = ECDSA::SchnorrAdaptor.presign(private_key, adaptor_point, message)
+
+# Anyone can verify the pre-signature before it is witnessed.
+valid = ECDSA::SchnorrAdaptor.verify_presignature(public_key, adaptor_point, message, pre_signature)
+
+# Once the adaptor secret is known, adapt to a final BIP-340 Schnorr signature.
+signature = ECDSA::SchnorrAdaptor.adapt(pre_signature, adaptor_secret, adaptor_point)
+ECDSA::SchnorrAdaptor.verify(public_key, message, signature)  # => true
+
+# Anyone who sees both signatures can recover the adaptor secret.
+recovered = ECDSA::SchnorrAdaptor.extract(pre_signature, signature, adaptor_point)
+recovered == adaptor_secret  # => true
+```
+
+By default `presign` draws its nonce from `SecureRandom`.  An explicit
+integer nonce can be passed with the `nonce:` keyword to get deterministic
+output (this is used for the test vectors in
+`spec/schnorr_adaptor_spec.rb`); never reuse a nonce across pre-signatures,
+as that leaks the secret key.
+
 ## Supported platforms
 
 This library should run on any Ruby interpreter that is compatible with Ruby 1.9.3.
