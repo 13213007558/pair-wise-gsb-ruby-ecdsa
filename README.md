@@ -162,6 +162,70 @@ valid = ECDSA.valid_signature?(public_key, digest, signature)
 puts "valid: #{valid}"
 ```
 
+## Schnorr adaptor signatures (secp256k1)
+
+The `ECDSA::Schnorr` module implements
+[BIP-340](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki)
+Schnorr signatures on secp256k1, and `ECDSA::Schnorr::Adaptor` builds
+adaptor signatures on top of them.  An adaptor signature lets one party
+publish a *pre-signature* that anyone can verify but that only becomes a
+valid, ordinary BIP-340 signature once someone reveals the adaptor secret
+_t_ of a public adaptor point _T = t*G_.  Once the final signature is
+public, anyone holding the pre-signature can extract _t_ from the pair.
+
+**Protocol variant.**  With _R = k*G_, _R' = R + T_, the BIP-340 challenge
+_e = H(R'.x || P.x || m)_, and _q = +/-1_ the parity sign of _R'_ (see below):
+
+    pre-sign:    s' = k + q*e*d          pre-verify:  s'*G == R + q*e*P
+    adapt:       s  = q*(s' + t)         extract:      t  = q*s - s'
+
+The final signature is _(R'.x, s)_ and verifies as an ordinary BIP-340
+signature.
+
+**Domain separation.**  All hashes are BIP-340 tagged hashes
+(_SHA256(SHA256(tag) || SHA256(tag) || data)_); the challenge uses the tag
+`BIP0340/challenge`, exactly as in BIP-340, so adapted signatures are
+indistinguishable from ordinary BIP-340 signatures.  Messages must be
+32-byte binary strings (e.g. a SHA-256 digest).
+
+**Point parity conventions.**  Public keys are x-only: the even-y
+representative is always used and secret keys are negated accordingly.
+The nonce point _R'_ of the final signature must also have even y, so when
+_R' = R + T_ has odd y the challenge term of the pre-signature is negated
+(_q = -1_) and the adapted _s_ is negated modulo the group order.  The
+parities of _R_ and _T_ themselves are unconstrained.
+
+**Extraction safety.**  `extract_secret` re-checks the candidate secret
+against the public adaptor point (_t*G == T_) and checks the final
+signature's _r_ against _R + T_, so a wrong message, public key, adaptor
+point, or signature can never produce a seemingly successful secret; it
+raises `ExtractionError` instead.
+
+```ruby
+require 'digest/sha2'
+group = ECDSA::Group::Secp256k1
+message = Digest::SHA256.digest('pay me when the oracle reveals t')
+
+# Signer creates a pre-signature locked to the adaptor point T.
+presignature = ECDSA::Schnorr::Adaptor.presign(private_key, message, adaptor_point)
+
+# Anyone can verify the pre-signature.
+ECDSA::Schnorr::Adaptor.valid_presignature?(public_key, message, adaptor_point, presignature)
+
+# Whoever learns t can adapt it into a final BIP-340 signature.
+signature = ECDSA::Schnorr::Adaptor.adapt(presignature, t, adaptor_point: adaptor_point)
+ECDSA::Schnorr.valid_signature?(public_key, message, signature)  # => true
+
+# And anyone with both signatures can extract t.
+t = ECDSA::Schnorr::Adaptor.extract_secret(presignature, signature, adaptor_point)
+```
+
+By default, nonces are drawn from `SecureRandom`.  Both
+`ECDSA::Schnorr.sign` and `ECDSA::Schnorr::Adaptor.presign` accept an
+explicit `nonce:` keyword, which exists mainly for deterministic test
+vectors; never reuse a nonce for two different messages, or the secret
+key can be computed from the resulting signatures.
+
 ## Supported platforms
 
 This library should run on any Ruby interpreter that is compatible with Ruby 1.9.3.

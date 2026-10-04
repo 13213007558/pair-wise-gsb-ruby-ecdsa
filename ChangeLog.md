@@ -5,6 +5,14 @@ This gem follows [Semantic Versioning 2.0.0](http://semver.org/spec/v2.0.0.html)
 All classes and public methods are part of the public API, unless explicitly noted otherwise
 in their documentation.
 
+Unreleased
+----
+
+- Adds `ECDSA::Schnorr`, implementing BIP-340 Schnorr signatures on
+  secp256k1, and `ECDSA::Schnorr::Adaptor`, implementing Schnorr adaptor
+  signatures (pre-sign, pre-signature verification, adaptation with the
+  adaptor secret, and adaptor secret extraction).
+
 1.2.0
 ----
 Released on 2014-09-14.
