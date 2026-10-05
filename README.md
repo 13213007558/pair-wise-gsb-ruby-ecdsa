@@ -162,6 +162,24 @@ valid = ECDSA.valid_signature?(public_key, digest, signature)
 puts "valid: #{valid}"
 ```
 
+## Bulletproof range proofs
+
+The gem includes a single-value Bulletproof range proof for secp256k1 Pedersen
+commitments. The initial range-proof release supports 8, 16, and 32 bit ranges.
+Pedersen and vector generators are derived with explicit domain-separation
+labels; callers cannot select bases with an assumed discrete-log relationship.
+
+```ruby
+commitment, randomness = ECDSA::Bulletproof.commit(123)
+proof = ECDSA::Bulletproof.prove(123, randomness, 8)
+valid = ECDSA::Bulletproof.valid_proof?(commitment, proof.to_binary)
+```
+
+Proofs use canonical binary strings. The verifier checks the version, range
+width, total length, every compressed point, every scalar, and every
+inner-product reduction point before evaluating the Fiat-Shamir transcript and
+group equations. Pass `rng: Random.new(seed)` for deterministic tests.
+
 ## Supported platforms
 
 This library should run on any Ruby interpreter that is compatible with Ruby 1.9.3.

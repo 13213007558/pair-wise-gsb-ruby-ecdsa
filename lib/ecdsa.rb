@@ -5,6 +5,7 @@ require_relative 'ecdsa/verify'
 require_relative 'ecdsa/recover_public_key'
 require_relative 'ecdsa/format'
 require_relative 'ecdsa/version'
+require_relative 'ecdsa/bulletproof'
 
 # TODO: fix the broken URLs we have for SEC1 and SEC2 all over the code base
 
